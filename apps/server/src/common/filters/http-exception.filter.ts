@@ -8,12 +8,17 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Response, Request } from 'express'
+import { Environment } from '../../modules/infrastructure/config/environment.enum.js'
+import type { AppEnvs } from '../../modules/infrastructure/config/env.js'
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name)
+  private readonly isProduction: boolean
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(config: ConfigService<AppEnvs, true>) {
+    this.isProduction = config.get('NODE_ENV') === Environment.PRODUCTION
+  }
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp()
@@ -41,7 +46,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
         `${request.method} ${request.url} → ${status}`,
         exception instanceof Error ? exception.stack : undefined,
       )
-      if (this.config.get<string>('NODE_ENV') === 'production') {
+      if (this.isProduction) {
         message = 'Internal server error'
       }
     } else if (status >= 400) {

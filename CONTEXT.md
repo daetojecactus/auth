@@ -157,20 +157,6 @@ Client                    Server                    Redis
 
 ## 5. Модель данных (Prisma Schema)
 
-### Текущее состояние
-
-```prisma
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-```
-
-### Целевая схема (после реализации всех этапов)
-
 ```prisma
 model User {
   id            String    @id @default(uuid())
@@ -238,9 +224,8 @@ TTL:   10 минут
 
 ```
 apps/server/src/
-├── main.ts                          # Точка входа, bootstrap NestJS
-├── generated/prisma/                # Prisma 7 авто-генерация клиента (в .gitignore)
-├── common/                          # Общие утилиты (plain TS, без NestJS modules)
+├── main.ts                            # Точка входа, bootstrap NestJS
+├── common/                            # Общие утилиты (plain TS, без NestJS modules)
 │   ├── decorators/
 │   │   ├── current-user.decorator.ts  # @CurrentUser() — извлечение пользователя из Request
 │   │   └── public.decorator.ts        # @Public() — пометка публичных роутов
@@ -251,26 +236,41 @@ apps/server/src/
 │   │   └── http-exception.filter.ts   # Глобальный exception filter
 │   ├── interfaces/
 │   │   └── session-user.interface.ts  # SessionUser — тип пользователя в сессии
+│   ├── constants/
+│   │   └── guard.messages.ts          # GuardMessage enum
 │   ├── utils/
 │   │   └── cookie.ts                  # Cookie name + options helper
 │   └── express.d.ts                   # Express Request augmentation (user, sessionId)
 └── modules/                           # NestJS модули, организованные по слоям
     ├── app.module.ts                  # Корневой модуль (импортирует агрегаторы)
-    ├── config/                        # Инфраструктура: конфигурация
-    │   ├── config.module.ts           # AppConfigModule — обёртка над ConfigModule
-    │   ├── env.ts                     # AppEnvs — класс валидации env-переменных
-    │   └── validate.ts                # Функция валидации через class-transformer
-    ├── database/                      # Инфраструктура: БД
-    │   ├── database.module.ts         # @Global() DatabaseModule
-    │   └── database.service.ts        # DatabaseService (Prisma 7 + @prisma/adapter-pg)
-    ├── redis/                         # Инфраструктура: кеш
-    │   ├── redis.module.ts            # @Global() RedisModule
-    │   └── redis.service.ts           # RedisService (ioredis, композиция)
-    ├── health/                        # Инфраструктура: healthcheck
-    │   ├── health.module.ts           # HealthModule
-    │   └── health.controller.ts       # GET /api/health (live, ready, combined)
+    │
+    ├── infrastructure/                # Инфраструктурный слой (транспорт, БД, кеш, конфиг)
+    │   ├── infrastructure.module.ts   # Агрегатор: Database + Redis + Mail + Health + Logger + Throttler
+    │   ├── config/
+    │   │   ├── config.module.ts       # AppConfigModule — обёртка над ConfigModule.forRoot
+    │   │   ├── env.ts                 # AppEnvs — класс валидации env-переменных
+    │   │   ├── environment.enum.ts    # Environment enum (DEVELOPMENT, PRODUCTION, TEST)
+    │   │   └── validate.ts            # Функция валидации через class-transformer
+    │   ├── database/
+    │   │   ├── database.module.ts     # @Global() DatabaseModule
+    │   │   ├── database.service.ts    # DatabaseService (Prisma 7 + @prisma/adapter-pg)
+    │   │   └── generated/prisma/      # Prisma 7 авто-генерация клиента
+    │   ├── redis/
+    │   │   ├── redis.module.ts        # @Global() RedisModule
+    │   │   └── redis.service.ts       # RedisService (ioredis, композиция)
+    │   ├── mail/
+    │   │   ├── mail.module.ts         # @Global() MailModule
+    │   │   └── mail.service.ts        # Транспорт email через SMTP (nodemailer)
+    │   ├── health/
+    │   │   ├── health.module.ts       # HealthModule
+    │   │   └── health.controller.ts   # GET /api/health (live, ready, combined)
+    │   ├── logger/
+    │   │   └── logger.module.ts       # PinoLoggerModule конфигурация
+    │   └── throttler/
+    │       └── throttler.module.ts    # Rate-limiting конфигурация
+    │
     ├── application/                   # Бизнес-логика (сервисы без контроллеров)
-    │   ├── application.module.ts      # Агрегатор: Session + User + Mail + Auth
+    │   ├── application.module.ts      # Агрегатор: Session + User + Notification + Auth
     │   ├── session/
     │   │   ├── session.module.ts      # @Global() SessionModule
     │   │   ├── session.service.ts     # CRUD сессий в Redis
@@ -278,19 +278,19 @@ apps/server/src/
     │   │   └── constants/
     │   │       └── session.constants.ts  # SessionConstants enum
     │   ├── user/
-    │   │   ├── user.module.ts         # UserModule
-    │   │   ├── user.service.ts        # CRUD пользователей, OAuth find-or-create
-    │   │   └── user.types.ts          # OAuthProfile, OAuthCallbackProfile
-    │   ├── mail/
-    │   │   ├── mail.module.ts         # MailModule
-    │   │   ├── mail.service.ts        # Отправка email через SMTP (nodemailer)
+    │   │   ├── user.module.ts         # @Global() UserModule
+    │   │   ├── user.service.ts        # CRUD пользователей, OAuth find-or-create (Prisma типы)
+    │   │   └── user.types.ts          # SafeUser (Prisma-derived), OAuthProfile
+    │   ├── notifications/
+    │   │   ├── notification.module.ts    # NotificationModule
+    │   │   ├── notification.service.ts   # Бизнес-логика уведомлений (использует MailService)
     │   │   └── templates/
-    │   │       └── verification.ts    # HTML-шаблон кода верификации
+    │   │       └── verification.ts       # HTML-шаблон кода верификации
     │   └── auth/
     │       ├── auth.module.ts         # AuthModule (Passport, providers)
     │       ├── auth.service.ts        # Register, login, verify, OAuth, change-password
     │       ├── constants/
-    │       │   └── auth.constants.ts  # AuthConstants enum, INVALID_CREDENTIALS
+    │       │   └── auth.constants.ts  # AuthConstants + AuthMessage enums
     │       ├── dto/
     │       │   ├── register.dto.ts
     │       │   ├── login.dto.ts
@@ -300,12 +300,22 @@ apps/server/src/
     │       ├── strategies/
     │       │   └── google.strategy.ts  # Google OAuth Passport strategy
     │       └── guards/
-    │           └── google-oauth.guard.ts  # Google OAuth guard (ConfigService)
+    │           └── google-oauth.guard.ts  # Google OAuth guard
+    │
     └── api/                           # HTTP-слой (контроллеры)
         ├── api.module.ts              # Агрегатор контроллеров
         └── auth/
             └── auth.controller.ts     # Все /api/auth/* эндпоинты
 ```
+
+### Принципы архитектуры
+
+- **infrastructure/** — транспорт, адаптеры, конфигурация. Не содержит бизнес-логики.
+- **application/** — бизнес-логика. Зависит от infrastructure, не знает о HTTP.
+- **api/** — HTTP-контроллеры. Тонкий слой, делегирует в application.
+- **common/** — утилиты и cross-cutting concerns (guards, filters, decorators).
+- Конфигурация: `ConfigService<AppEnvs, true>` из `@nestjs/config` с валидацией через class-validator.
+- Типы данных: Prisma-generated типы (`User`, `Prisma.UserWhereInput`, `Prisma.UserCreateInput`) вместо кастомных.
 
 ## 8. Структура клиентских модулей (целевая)
 

@@ -104,20 +104,30 @@ src/
 │   ├── guards/                          # AuthGuard, VerifiedGuard
 │   └── utils/                           # Cookie helpers
 └── modules/                             # NestJS модули по слоям
-    ├── config/                          # ConfigModule + env validation
-    ├── logger/                          # Pino logger (structured, redacted)
-    ├── throttler/                       # Rate limiting (3 тiers)
-    ├── database/                        # Prisma 7 + @prisma/adapter-pg
-    ├── redis/                           # ioredis (композиция)
-    ├── health/                          # /api/health (DB + Redis check)
+    ├── infrastructure/                  # Инфраструктура (транспорт, БД, кеш, конфиг)
+    │   ├── config/                      # ConfigModule + env validation (AppEnvs)
+    │   ├── database/                    # Prisma 7 + @prisma/adapter-pg
+    │   ├── redis/                       # ioredis (композиция)
+    │   ├── mail/                        # SMTP транспорт (nodemailer)
+    │   ├── health/                      # /api/health (DB + Redis check)
+    │   ├── logger/                      # Pino logger (structured, redacted)
+    │   └── throttler/                   # Rate limiting (3 tiers)
     ├── application/                     # Бизнес-логика
     │   ├── auth/                        # Register, login, verify, OAuth
     │   ├── session/                     # Redis sessions CRUD
-    │   ├── user/                        # User CRUD, find-or-create
-    │   └── mail/                        # SMTP через nodemailer
+    │   ├── user/                        # User CRUD, find-or-create (Prisma типы)
+    │   └── notifications/               # Уведомления (шаблоны + отправка через MailService)
     └── api/                             # HTTP контроллеры
         └── auth/                        # /api/auth/* endpoints
 ```
+
+### Принципы
+
+- **infrastructure/** — адаптеры к внешним системам, конфигурация. Без бизнес-логики.
+- **application/** — бизнес-правила. Зависит от infrastructure, не знает о HTTP.
+- **api/** — тонкий HTTP-слой, делегирует в application.
+- Конфигурация: `ConfigService<AppEnvs, true>` — строго типизирован, валидирован через class-validator.
+- Типы данных: Prisma-generated типы вместо кастомных (`Prisma.UserWhereInput`, `Prisma.UserCreateInput`).
 
 ## Docker
 

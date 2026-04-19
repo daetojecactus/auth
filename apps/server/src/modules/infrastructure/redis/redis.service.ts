@@ -1,15 +1,16 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Redis } from 'ioredis'
+import type { AppEnvs } from '../config/env.js'
 
 @Injectable()
 export class RedisService implements OnModuleDestroy {
   private readonly client: Redis
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(config: ConfigService<AppEnvs, true>) {
     this.client = new Redis({
-      host: configService.get<string>('REDIS_HOST', 'localhost'),
-      port: configService.get<number>('REDIS_PORT', 6379),
+      host: config.get('REDIS_HOST'),
+      port: config.get('REDIS_PORT'),
     })
   }
 
@@ -17,14 +18,8 @@ export class RedisService implements OnModuleDestroy {
     return this.client.get(key)
   }
 
-  async set(key: string, value: string, exMode: 'EX', ttl: number): Promise<string>
-  async set(key: string, value: string): Promise<string>
-  async set(key: string, value: string, ...args: (string | number)[]): Promise<string> {
-    if (args.length === 0) {
-      return this.client.set(key, value)
-    }
-    const [mode, ttl] = args
-    if (mode === 'EX' && typeof ttl === 'number') {
+  async set(key: string, value: string, ttl?: number): Promise<string> {
+    if (ttl) {
       return this.client.set(key, value, 'EX', ttl)
     }
     return this.client.set(key, value)

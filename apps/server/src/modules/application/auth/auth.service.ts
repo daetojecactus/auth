@@ -6,31 +6,54 @@ import {
 } from '@nestjs/common'
 import argon2 from 'argon2'
 import { randomInt } from 'crypto'
+import { ConfigService } from '@nestjs/config'
 import { UserService } from '../user/user.service.js'
 import { SessionService } from '../session/session.service.js'
-import { RedisService } from '../../redis/redis.service.js'
-import { MailService } from '../mail/mail.service.js'
+import { RedisService } from '../../infrastructure/redis/redis.service.js'
+import { NotificationService } from '../notifications/notification.service.js'
 import { RegisterDto } from './dto/register.dto.js'
 import { LoginDto } from './dto/login.dto.js'
 import { VerifyDto } from './dto/verify.dto.js'
 import { ResendCodeDto } from './dto/resend-code.dto.js'
 import { ChangePasswordDto } from './dto/change-password.dto.js'
 import { AuthConstants, AuthMessage } from './constants/auth.constants.js'
+import type { AppEnvs } from '../../infrastructure/config/env.js'
 import type { OAuthCallbackProfile } from '../user/user.types.js'
 
 @Injectable()
 export class AuthService {
+  private readonly pepper: string
+
   constructor(
     private readonly userService: UserService,
     private readonly sessionService: SessionService,
     private readonly redis: RedisService,
-    private readonly mailService: MailService,
-  ) {}
+    private readonly notificationService: NotificationService,
+    config: ConfigService<AppEnvs, true>,
+  ) {
+    this.pepper = config.get('SESSION_SECRET')
+  }
+
+  private async hashPassword(password: string): Promise<string> {
+    return argon2.hash(password, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 4,
+      secret: Buffer.from(this.pepper),
+    })
+  }
+
+  private async verifyPassword(hash: string, password: string): Promise<boolean> {
+    return argon2.verify(hash, password, {
+      secret: Buffer.from(this.pepper),
+    })
+  }
 
   async register(dto: RegisterDto) {
     const [existingEmail, existingUsername] = await Promise.all([
-      this.userService.findByEmail(dto.email),
-      this.userService.findByUsername(dto.username),
+      this.userService.findOne({ email: dto.email }),
+      this.userService.findOne({ username: dto.username }),
     ])
 
     if (existingEmail) {
@@ -41,12 +64,7 @@ export class AuthService {
       throw new ConflictException(AuthMessage.USERNAME_TAKEN)
     }
 
-    const hashedPassword = await argon2.hash(dto.password, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    })
+    const hashedPassword = await this.hashPassword(dto.password)
 
     const user = await this.userService.create({
       email: dto.email,
@@ -63,14 +81,14 @@ export class AuthService {
   }
 
   async login(dto: LoginDto, ip: string, userAgent: string) {
-    const user = await this.userService.findByEmail(dto.email)
+    const user = await this.userService.findOne({ email: dto.email })
 
     if (!user || !user.password) {
-      await argon2.hash('dummy-password-timing-safe')
+      await this.hashPassword('dummy-password-timing-safe')
       throw new UnauthorizedException(AuthMessage.INVALID_CREDENTIALS)
     }
 
-    const isPasswordValid = await argon2.verify(user.password, dto.password)
+    const isPasswordValid = await this.verifyPassword(user.password, dto.password)
     if (!isPasswordValid) {
       throw new UnauthorizedException(AuthMessage.INVALID_CREDENTIALS)
     }
@@ -104,7 +122,7 @@ export class AuthService {
       throw new BadRequestException(AuthMessage.INVALID_VERIFICATION_CODE)
     }
 
-    const user = await this.userService.findByEmail(dto.email)
+    const user = await this.userService.findOne({ email: dto.email })
     if (!user) {
       throw new BadRequestException(AuthMessage.INVALID_VERIFICATION_CODE)
     }
@@ -121,7 +139,7 @@ export class AuthService {
   }
 
   async resendCode(dto: ResendCodeDto) {
-    const user = await this.userService.findByEmail(dto.email)
+    const user = await this.userService.findOne({ email: dto.email })
 
     if (!user || user.isVerified) {
       return { message: AuthMessage.RESEND_CODE_SUCCESS }
@@ -134,14 +152,12 @@ export class AuthService {
 
   private async generateAndSendCode(email: string): Promise<void> {
     const code = randomInt(100000, 999999).toString()
-    console.log(`Generated verification code for ${email}: ${code}`) // For debugging, remove in production
     await this.redis.set(
       `${AuthConstants.VERIFY_PREFIX}${email}`,
       code,
-      'EX',
       AuthConstants.VERIFY_TTL,
     )
-    await this.mailService.sendVerificationCode(email, code)
+    await this.notificationService.sendVerificationCode(email, code)
   }
 
   async googleLogin(profile: OAuthCallbackProfile, ip: string, userAgent: string) {
@@ -160,23 +176,18 @@ export class AuthService {
   }
 
   async changePassword(dto: ChangePasswordDto, userId: string, currentSessionId: string) {
-    const user = await this.userService.findByIdWithPassword(userId)
+    const user = await this.userService.findOne({ id: userId })
 
     if (!user || !user.password) {
       throw new BadRequestException(AuthMessage.PASSWORD_CHANGE_UNAVAILABLE)
     }
 
-    const isCurrentValid = await argon2.verify(user.password, dto.currentPassword)
+    const isCurrentValid = await this.verifyPassword(user.password, dto.currentPassword)
     if (!isCurrentValid) {
       throw new BadRequestException(AuthMessage.CURRENT_PASSWORD_INCORRECT)
     }
 
-    const hashedNew = await argon2.hash(dto.newPassword, {
-      type: argon2.argon2id,
-      memoryCost: 65536,
-      timeCost: 3,
-      parallelism: 4,
-    })
+    const hashedNew = await this.hashPassword(dto.newPassword)
 
     await this.userService.update(userId, { password: hashedNew })
 

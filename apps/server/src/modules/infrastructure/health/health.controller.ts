@@ -1,7 +1,7 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common'
 import { SkipThrottle } from '@nestjs/throttler'
 import { Response } from 'express'
-import { Public } from '../../common/decorators/public.decorator.js'
+import { Public } from '../../../common/decorators/public.decorator.js'
 import { DatabaseService } from '../database/database.service.js'
 import { RedisService } from '../redis/redis.service.js'
 

@@ -4,14 +4,14 @@ import { Request } from 'express'
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator.js'
 import { GuardMessage } from '../constants/guard.messages.js'
 import { SessionService } from '../../modules/application/session/session.service.js'
-import { DatabaseService } from '../../modules/database/database.service.js'
+import { UserService } from '../../modules/application/user/user.service.js'
 
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly session: SessionService,
-    private readonly db: DatabaseService,
+    private readonly userService: UserService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -41,17 +41,7 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException(GuardMessage.SESSION_CLIENT_MISMATCH)
     }
 
-    const user = await this.db.user.findUnique({
-      where: { id: sessionData.userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        isVerified: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
-    })
+    const user = await this.userService.findSafe({ id: sessionData.userId })
 
     if (!user) {
       await this.session.delete(sessionId)

@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomBytes } from 'crypto'
-import { RedisService } from '../../redis/redis.service.js'
+import { RedisService } from '../../infrastructure/redis/redis.service.js'
 import { SessionConstants } from './constants/session.constants.js'
+import type { AppEnvs } from '../../infrastructure/config/env.js'
 import type { SessionData, SessionInfo } from './session.types.js'
 
 @Injectable()
@@ -11,9 +12,9 @@ export class SessionService {
 
   constructor(
     private readonly redis: RedisService,
-    private readonly config: ConfigService,
+    config: ConfigService<AppEnvs, true>,
   ) {
-    this.ttl = this.config.get<number>('SESSION_TTL', 604800)
+    this.ttl = config.get('SESSION_TTL')
   }
 
   async create(data: Omit<SessionData, 'createdAt'>): Promise<string> {
@@ -26,7 +27,6 @@ export class SessionService {
     await this.redis.set(
       `${SessionConstants.PREFIX}${sessionId}`,
       JSON.stringify(session),
-      'EX',
       this.ttl,
     )
     await this.redis.sadd(`${SessionConstants.USER_SESSIONS_PREFIX}${data.userId}`, sessionId)

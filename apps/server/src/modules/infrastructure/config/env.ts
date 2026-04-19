@@ -1,9 +1,10 @@
-import { IsString, IsNumber, IsOptional } from 'class-validator'
+import { IsString, IsNumber, IsOptional, IsEnum } from 'class-validator'
 import { Transform } from 'class-transformer'
+import { Environment } from './environment.enum.js'
 
 export class AppEnvs {
-  @IsString()
-  NODE_ENV!: string
+  @IsEnum(Environment)
+  NODE_ENV!: Environment
 
   @IsNumber()
   @Transform(({ value }) => parseInt(value, 10))

@@ -1,63 +1,31 @@
 import { Injectable } from '@nestjs/common'
-import { DatabaseService } from '../../database/database.service.js'
-import type { OAuthProfile } from './user.types.js'
+import { DatabaseService } from '../../infrastructure/database/database.service.js'
+import type { User, Prisma } from '../../infrastructure/database/generated/prisma/client.js'
+import type { SafeUser, OAuthProfile } from './user.types.js'
 
-const USER_SELECT = {
-  id: true,
-  email: true,
-  username: true,
-  isVerified: true,
-  avatarUrl: true,
-  createdAt: true,
-} as const
+const SAFE_USER_OMIT = { password: true, updatedAt: true } as const
 
 @Injectable()
 export class UserService {
   constructor(private readonly db: DatabaseService) {}
 
-  async findByEmail(email: string) {
-    return this.db.user.findUnique({ where: { email } })
+  async findOne(where: Prisma.UserWhereInput): Promise<User | null> {
+    return this.db.user.findFirst({ where })
   }
 
-  async findByUsername(username: string) {
-    return this.db.user.findUnique({ where: { username } })
+  async findSafe(where: Prisma.UserWhereInput): Promise<SafeUser | null> {
+    return this.db.user.findFirst({ where, omit: SAFE_USER_OMIT })
   }
 
-  async findById(id: string) {
-    return this.db.user.findUnique({
-      where: { id },
-      select: USER_SELECT,
-    })
+  async create(data: Prisma.UserCreateInput): Promise<SafeUser> {
+    return this.db.user.create({ data, omit: SAFE_USER_OMIT })
   }
 
-  async findByIdWithPassword(id: string) {
-    return this.db.user.findUnique({
-      where: { id },
-      select: { ...USER_SELECT, password: true },
-    })
+  async update(id: string, data: Prisma.UserUpdateInput): Promise<SafeUser> {
+    return this.db.user.update({ where: { id }, data, omit: SAFE_USER_OMIT })
   }
 
-  async create(data: { email: string; username: string; password: string }) {
-    return this.db.user.create({
-      data: {
-        email: data.email,
-        username: data.username,
-        password: data.password,
-        isVerified: false,
-      },
-      select: USER_SELECT,
-    })
-  }
-
-  async update(id: string, data: { isVerified?: boolean; password?: string }) {
-    return this.db.user.update({
-      where: { id },
-      data,
-      select: USER_SELECT,
-    })
-  }
-
-  async findOrCreateOAuthUser(profile: OAuthProfile) {
+  async findOrCreateOAuthUser(profile: OAuthProfile): Promise<SafeUser> {
     const existingAccount = await this.db.account.findUnique({
       where: {
         provider_providerAccountId: {
@@ -65,24 +33,14 @@ export class UserService {
           providerAccountId: profile.providerAccountId,
         },
       },
-      include: { user: true },
+      include: { user: { omit: SAFE_USER_OMIT } },
     })
 
     if (existingAccount) {
       if (profile.avatarUrl && existingAccount.user.avatarUrl !== profile.avatarUrl) {
-        await this.db.user.update({
-          where: { id: existingAccount.user.id },
-          data: { avatarUrl: profile.avatarUrl },
-        })
+        return this.update(existingAccount.user.id, { avatarUrl: profile.avatarUrl })
       }
-
-      return {
-        id: existingAccount.user.id,
-        email: existingAccount.user.email,
-        username: existingAccount.user.username,
-        isVerified: existingAccount.user.isVerified,
-        avatarUrl: profile.avatarUrl || existingAccount.user.avatarUrl,
-      }
+      return existingAccount.user
     }
 
     const existingUser = await this.db.user.findUnique({
@@ -99,19 +57,11 @@ export class UserService {
       })
 
       if (!existingUser.isVerified) {
-        await this.db.user.update({
-          where: { id: existingUser.id },
-          data: { isVerified: true },
-        })
+        return this.update(existingUser.id, { isVerified: true })
       }
 
-      return {
-        id: existingUser.id,
-        email: existingUser.email,
-        username: existingUser.username,
-        isVerified: true,
-        avatarUrl: existingUser.avatarUrl || profile.avatarUrl,
-      }
+      const { password: _, updatedAt: __, ...safeUser } = existingUser
+      return safeUser
     }
 
     const username = await this.generateUniqueUsername(profile.username)
@@ -130,7 +80,7 @@ export class UserService {
           },
         },
       },
-      select: USER_SELECT,
+      omit: SAFE_USER_OMIT,
     })
   }
 

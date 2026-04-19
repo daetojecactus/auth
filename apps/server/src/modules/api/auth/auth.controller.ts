@@ -11,9 +11,9 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
 import { Throttle } from '@nestjs/throttler'
 import { Request, Response } from 'express'
+import { ConfigService } from '@nestjs/config'
 import { AuthService } from '../../application/auth/auth.service.js'
 import { RegisterDto } from '../../application/auth/dto/register.dto.js'
 import { LoginDto } from '../../application/auth/dto/login.dto.js'
@@ -25,15 +25,25 @@ import { CurrentUser } from '../../../common/decorators/current-user.decorator.j
 import { COOKIE_NAME, getSessionCookieOptions } from '../../../common/utils/cookie.js'
 import { GoogleOAuthGuard } from '../../application/auth/guards/google-oauth.guard.js'
 import { AuthMessage } from '../../application/auth/constants/auth.constants.js'
+import { Environment } from '../../infrastructure/config/environment.enum.js'
+import type { AppEnvs } from '../../infrastructure/config/env.js'
 import type { SessionUser } from '../../../common/interfaces/session-user.interface.js'
 import type { OAuthCallbackProfile } from '../../application/user/user.types.js'
 
 @Controller('auth')
 export class AuthController {
+  private readonly sessionTtl: number
+  private readonly isProduction: boolean
+  private readonly clientUrl: string
+
   constructor(
     private readonly authService: AuthService,
-    private readonly config: ConfigService,
-  ) {}
+    config: ConfigService<AppEnvs, true>,
+  ) {
+    this.sessionTtl = config.get('SESSION_TTL')
+    this.isProduction = config.get('NODE_ENV') === Environment.PRODUCTION
+    this.clientUrl = config.get('CLIENT_URL')
+  }
 
   @Post('register')
   @Public()
@@ -62,10 +72,11 @@ export class AuthController {
 
     const result = await this.authService.login(dto, ip, userAgent)
 
-    const ttl = this.config.get<number>('SESSION_TTL', 604800)
-    const isProduction = this.config.get<string>('NODE_ENV') === 'production'
-
-    res.cookie(COOKIE_NAME, result.sessionId, getSessionCookieOptions(ttl, isProduction))
+    res.cookie(
+      COOKIE_NAME,
+      result.sessionId,
+      getSessionCookieOptions(this.sessionTtl, this.isProduction),
+    )
 
     return { user: result.user }
   }
@@ -146,13 +157,11 @@ export class AuthController {
   @Public()
   @UseGuards(GoogleOAuthGuard)
   async googleCallback(@Req() req: Request, @Res() res: Response) {
-    const clientUrl = this.config.get<string>('CLIENT_URL', 'http://localhost:3000')
-
     try {
       const profile = req.user as unknown as OAuthCallbackProfile
 
       if (!profile?.providerAccountId) {
-        return res.redirect(`${clientUrl}/login?error=oauth_failed`)
+        return res.redirect(`${this.clientUrl}/login?error=oauth_failed`)
       }
 
       const ip = req.ip || req.socket.remoteAddress || 'unknown'
@@ -160,14 +169,15 @@ export class AuthController {
 
       const result = await this.authService.googleLogin(profile, ip, userAgent)
 
-      const ttl = this.config.get<number>('SESSION_TTL', 604800)
-      const isProduction = this.config.get<string>('NODE_ENV') === 'production'
-
-      res.cookie(COOKIE_NAME, result.sessionId, getSessionCookieOptions(ttl, isProduction))
-      res.redirect(`${clientUrl}/dashboard`)
+      res.cookie(
+        COOKIE_NAME,
+        result.sessionId,
+        getSessionCookieOptions(this.sessionTtl, this.isProduction),
+      )
+      res.redirect(`${this.clientUrl}/dashboard`)
     } catch {
       if (!res.headersSent) {
-        res.redirect(`${clientUrl}/login?error=oauth_failed`)
+        res.redirect(`${this.clientUrl}/login?error=oauth_failed`)
       }
     }
   }
