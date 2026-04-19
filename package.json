@@ -1,0 +1,24 @@
+{
+  "name": "auth",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "dev:server": "pnpm --filter @auth/server dev",
+    "dev:client": "pnpm --filter @auth/client dev",
+    "build": "pnpm --parallel -r build",
+    "lint": "pnpm --parallel -r lint",
+    "format": "prettier --write \"apps/**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "prisma:generate": "pnpm --filter @auth/server prisma:generate",
+    "prisma:migrate": "pnpm --filter @auth/server prisma:migrate"
+  },
+  "devDependencies": {
+    "prettier": "^3.5.3"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=10.0.0"
+  }
+}
